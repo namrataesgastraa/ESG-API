@@ -31,6 +31,8 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: false
     },
 
+    slug: DataTypes.STRING,
+
     eyebrow: DataTypes.STRING,
 
     intro_paragraph_1: DataTypes.TEXT,
@@ -40,6 +42,19 @@ module.exports = (sequelize, DataTypes) => {
 
     cover_image: DataTypes.STRING,
     cover_caption: DataTypes.STRING,
+    industry_tag: DataTypes.STRING,
+published_date: DataTypes.STRING,
+read_time: DataTypes.STRING,
+author_name: DataTypes.STRING,
+summary: DataTypes.TEXT,
+cover_alt: DataTypes.STRING,
+    published_date: DataTypes.STRING,
+read_time: DataTypes.STRING,
+cover_alt: DataTypes.STRING,
+summary: DataTypes.TEXT,
+key_takeaways: DataTypes.JSON,
+
+    related_blogs: DataTypes.JSON,
 
     pdf_file: DataTypes.STRING,
 

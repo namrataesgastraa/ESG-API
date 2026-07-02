@@ -1,6 +1,7 @@
 const { Blog, BlogTab, BlogReference, BlogTabBullet, sequelize } = require("../models");
-const { normalizeName } = require("../utils/string.helper");
+const { normalizeName, slugify } = require("../utils/string.helper");
 const { Op } = require("sequelize");
+const { parseBlogExcel } = require("../utils/blogExcelParser");
 const {
   uploadToS3,
   deleteFromS3,
@@ -41,7 +42,12 @@ const parsePayload = (body) => {
 
 const uploadBlogImage = async (file, folder) => {
   if (!file) return null;
-  const key = `blog/${folder}/${Date.now()}-${file.originalname}`;
+  const safeName = file.originalname
+  .replace(/\s+/g, "-")
+  .replace(/,/g, "")
+  .replace(/[^a-zA-Z0-9.-]/g, "");
+
+const key = `blog/${folder}/${Date.now()}-${safeName}`;
   return await uploadToS3(file.buffer, key, file.mimetype);
 };
 
@@ -57,29 +63,41 @@ const removeImage = async (url) => {
   }
 };
 
-exports.createBlog = async (req, res) => {
+const saveBlogFromPayload = async (req, res, payload) => {
   const t = await sequelize.transaction();
   const uploadedUrls = [];
 
   try {
-    const payload = parsePayload(req.body);
-
     const {
-      blog_name,
-      website_url,
-      linkedin_url,
-      instagram_url,
-      medium_url,
-      main_title,
-      sub_title,
-      eyebrow,
-      intro_paragraph_1,
-      intro_paragraph_2,
-      cta_text,
-      cover_caption,
-      tabs = [],
-      references = [],
-    } = payload;
+  blog_name,
+  website_url,
+  linkedin_url,
+  instagram_url,
+  medium_url,
+
+  main_title,
+  sub_title,
+  slug,
+  eyebrow,
+
+  industry_tag,
+  published_date,
+  read_time,
+  author_name,
+  summary,
+  cover_alt,
+  key_takeaways,
+  related_blogs,
+
+  intro_paragraph_1,
+  intro_paragraph_2,
+
+  cta_text,
+  cover_caption,
+
+  tabs = [],
+  references = [],
+} = payload;
 
     if (!blog_name || !main_title) {
       await t.rollback();
@@ -120,26 +138,40 @@ exports.createBlog = async (req, res) => {
     if (coverUrl) uploadedUrls.push(coverUrl);
 
     const blog = await Blog.create(
-      {
-        blog_name,
-        website_url,
-        linkedin_url,
-        instagram_url,
-        medium_url,
-        main_title,
-        sub_title,
-        normalized_title: normalized,
-        eyebrow,
-        intro_paragraph_1,
-        intro_paragraph_2,
-        cta_text,
-        cover_image: coverUrl,
-        cover_caption,
-        created_by: req.user?.id || null,
-      },
-      { transaction: t },
-    );
+  {
+    blog_name,
+    website_url,
+    linkedin_url,
+    instagram_url,
+    medium_url,
 
+    main_title,
+    sub_title,
+    normalized_title: normalized,
+    slug: slugify(slug) || slugify(main_title),
+
+    eyebrow,
+    industry_tag,
+    published_date,
+    read_time,
+    author_name,
+    summary,
+    cover_alt,
+    key_takeaways,
+    related_blogs: Array.isArray(related_blogs) ? related_blogs : [],
+
+    intro_paragraph_1,
+    intro_paragraph_2,
+
+    cta_text,
+    cover_image: coverUrl,
+    cover_caption,
+
+    created_by: req.user?.id || null,
+  },
+  { transaction: t }
+);
+console.log("SAVED BLOG:", blog.toJSON());
     const tabRows = [];
     const bulletRows = [];
 
@@ -154,9 +186,9 @@ exports.createBlog = async (req, res) => {
         if (sectionImageUrl) uploadedUrls.push(sectionImageUrl);
       }
 
-      // Extract bullets from content if present
       const content = tab.content ? { ...tab.content } : null;
       const bullets = content?.bullets;
+
       if (content && content.bullets) {
         delete content.bullets;
       }
@@ -170,14 +202,12 @@ exports.createBlog = async (req, res) => {
         section_image_caption: tab.section_image_caption || null,
       });
 
-      // Prepare bullets for separate storage
       if (Array.isArray(bullets) && bullets.length > 0) {
-        // We'll add blog_tab_id after tabs are created
         bullets.forEach((bullet, idx) => {
           bulletRows.push({
             tab_order: order,
             bullet_order: idx + 1,
-            lead: bullet.lead,
+            lead: bullet.lead || "Point",
             body: bullet.body || null,
           });
         });
@@ -187,10 +217,9 @@ exports.createBlog = async (req, res) => {
     if (tabRows.length) {
       const createdTabs = await BlogTab.bulkCreate(tabRows, { transaction: t });
 
-      // Now create bullets with correct blog_tab_id
       if (bulletRows.length > 0) {
         const bulletRowsWithTabId = bulletRows.map((bullet) => {
-          const tab = createdTabs.find(t => t.tab_order === bullet.tab_order);
+          const tab = createdTabs.find((t) => t.tab_order === bullet.tab_order);
           return {
             blog_tab_id: tab.id,
             bullet_order: bullet.bullet_order,
@@ -198,7 +227,10 @@ exports.createBlog = async (req, res) => {
             body: bullet.body,
           };
         });
-        await BlogTabBullet.bulkCreate(bulletRowsWithTabId, { transaction: t });
+
+        await BlogTabBullet.bulkCreate(bulletRowsWithTabId, {
+          transaction: t,
+        });
       }
     }
 
@@ -207,6 +239,7 @@ exports.createBlog = async (req, res) => {
         .map((ref, idx) => {
           const content = typeof ref === "string" ? ref : ref?.content;
           if (!content) return null;
+
           return {
             blog_id: blog.id,
             reference_order:
@@ -228,12 +261,20 @@ exports.createBlog = async (req, res) => {
     const fullBlog = await Blog.findOne({
       where: { id: blog.id },
       include: [
-        { model: BlogTab, as: "tabs", order: [["tab_order", "ASC"]] },
+        {
+          model: BlogTab,
+          as: "tabs",
+          include: [{ model: BlogTabBullet, as: "bullets" }],
+        },
         {
           model: BlogReference,
           as: "references",
-          order: [["reference_order", "ASC"]],
         },
+      ],
+      order: [
+        [{ model: BlogTab, as: "tabs" }, "tab_order", "ASC"],
+        [{ model: BlogTab, as: "tabs" }, { model: BlogTabBullet, as: "bullets" }, "bullet_order", "ASC"],
+        [{ model: BlogReference, as: "references" }, "reference_order", "ASC"],
       ],
     });
 
@@ -250,6 +291,64 @@ exports.createBlog = async (req, res) => {
       await removeImage(url);
     }
 
+    return res.status(500).json({
+      status: false,
+      responseCode: 500,
+      message: error.message,
+    });
+  }
+};
+
+exports.createBlog = async (req, res) => {
+  const payload = parsePayload(req.body);
+  return saveBlogFromPayload(req, res, payload);
+};
+exports.previewBlogExcel = async (req, res) => {
+  try {
+    const excelFile = req.files?.excel_file?.[0];
+
+    if (!excelFile) {
+      return res.status(400).json({
+        status: false,
+        responseCode: 400,
+        message: "excel_file is required",
+      });
+    }
+
+    const payload = parseBlogExcel(excelFile.buffer);
+    console.log("KEY TAKEAWAYS FROM EXCEL:");
+console.log(payload.key_takeaways);
+
+    return res.status(200).json({
+      status: true,
+      responseCode: 200,
+      message: "Excel preview generated",
+      data: payload,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      status: false,
+      responseCode: 500,
+      message: error.message,
+    });
+  }
+};
+exports.uploadBlogExcel = async (req, res) => {
+  try {
+    const excelFile = req.files?.excel_file?.[0];
+
+    if (!excelFile) {
+      return res.status(400).json({
+        status: false,
+        responseCode: 400,
+        message: "excel_file is required",
+      });
+    }
+
+    const payload = parseBlogExcel(excelFile.buffer);
+
+    return saveBlogFromPayload(req, res, payload);
+  } catch (error) {
     return res.status(500).json({
       status: false,
       responseCode: 500,
@@ -304,6 +403,18 @@ exports.updateBlog = async (req, res) => {
       blog.normalized_title = normalized;
     }
 
+    if (payload.slug !== undefined && payload.slug !== "") {
+      blog.slug = slugify(payload.slug);
+    } else if (payload.main_title && !blog.slug) {
+      blog.slug = slugify(payload.main_title);
+    }
+
+    if (payload.related_blogs !== undefined) {
+      blog.related_blogs = Array.isArray(payload.related_blogs)
+        ? payload.related_blogs
+        : [];
+    }
+
     const scalarFields = [
       "blog_name",
       "website_url",
@@ -317,11 +428,13 @@ exports.updateBlog = async (req, res) => {
       "cta_text",
       "cover_caption",
     ];
+
     for (const field of scalarFields) {
       if (payload[field] !== undefined) blog[field] = payload[field];
     }
 
     const coverFile = req.files?.cover_image?.[0];
+
     if (coverFile) {
       const newUrl = await uploadBlogImage(coverFile, "cover");
       uploadedUrls.push(newUrl);
@@ -335,19 +448,14 @@ exports.updateBlog = async (req, res) => {
     if (Array.isArray(payload.tabs)) {
       const existingTabs = await BlogTab.findAll({
         where: { blog_id: blog.id },
-        include: [
-          {
-            model: BlogTabBullet,
-            as: "bullets",
-          },
-        ],
+        include: [{ model: BlogTabBullet, as: "bullets" }],
         transaction: t,
       });
-      const existingByOrder = new Map(
-        existingTabs.map((tb) => [tb.tab_order, tb]),
-      );
+
+      const existingByOrder = new Map(existingTabs.map((tb) => [tb.tab_order, tb]));
 
       const incomingOrders = new Set();
+
       for (const tab of payload.tabs) {
         const order = parseInt(tab.tab_order);
         incomingOrders.add(order);
@@ -364,12 +472,11 @@ exports.updateBlog = async (req, res) => {
           sectionImageUrl = newUrl;
         }
 
-        // Extract bullets from content if present
         let content = tab.content !== undefined ? tab.content : existing?.content;
-        if (content) {
-          content = { ...content };
-        }
+        if (content) content = { ...content };
+
         const incomingBullets = content?.bullets;
+
         if (content && content.bullets) {
           delete content.bullets;
         }
@@ -378,7 +485,7 @@ exports.updateBlog = async (req, res) => {
           blog_id: blog.id,
           tab_order: order,
           heading: tab.heading ?? existing?.heading,
-          content: content,
+          content,
           section_image: sectionImageUrl,
           section_image_caption:
             tab.section_image_caption !== undefined
@@ -387,6 +494,7 @@ exports.updateBlog = async (req, res) => {
         };
 
         let tabRecord;
+
         if (existing) {
           await existing.update(values, { transaction: t });
           tabRecord = existing;
@@ -394,23 +502,23 @@ exports.updateBlog = async (req, res) => {
           tabRecord = await BlogTab.create(values, { transaction: t });
         }
 
-        // Handle bullets sync
         if (incomingBullets !== undefined) {
-          // Delete old bullets for this tab
           await BlogTabBullet.destroy({
             where: { blog_tab_id: tabRecord.id },
             transaction: t,
           });
 
-          // Create new bullets
           if (Array.isArray(incomingBullets) && incomingBullets.length > 0) {
             const bulletRowsToCreate = incomingBullets.map((bullet, idx) => ({
               blog_tab_id: tabRecord.id,
               bullet_order: idx + 1,
-              lead: bullet.lead,
+              lead: bullet.lead || "Point",
               body: bullet.body || null,
             }));
-            await BlogTabBullet.bulkCreate(bulletRowsToCreate, { transaction: t });
+
+            await BlogTabBullet.bulkCreate(bulletRowsToCreate, {
+              transaction: t,
+            });
           }
         }
       }
@@ -433,6 +541,7 @@ exports.updateBlog = async (req, res) => {
         .map((ref, idx) => {
           const content = typeof ref === "string" ? ref : ref?.content;
           if (!content) return null;
+
           return {
             blog_id: blog.id,
             reference_order:
@@ -454,12 +563,12 @@ exports.updateBlog = async (req, res) => {
     const fullBlog = await Blog.findOne({
       where: { id: blog.id },
       include: [
-        { model: BlogTab, as: "tabs", order: [["tab_order", "ASC"]] },
-        {
-          model: BlogReference,
-          as: "references",
-          order: [["reference_order", "ASC"]],
-        },
+        { model: BlogTab, as: "tabs" },
+        { model: BlogReference, as: "references" },
+      ],
+      order: [
+        [{ model: BlogTab, as: "tabs" }, "tab_order", "ASC"],
+        [{ model: BlogReference, as: "references" }, "reference_order", "ASC"],
       ],
     });
 
@@ -550,18 +659,13 @@ exports.getBlogById = async (req, res) => {
         {
           model: BlogTab,
           as: "tabs",
-          include: [
-            {
-              model: BlogTabBullet,
-              as: "bullets",
-              order: [["bullet_order", "ASC"]],
-            },
-          ],
+          include: [{ model: BlogTabBullet, as: "bullets" }],
         },
         { model: BlogReference, as: "references" },
       ],
       order: [
         [{ model: BlogTab, as: "tabs" }, "tab_order", "ASC"],
+        [{ model: BlogTab, as: "tabs" }, { model: BlogTabBullet, as: "bullets" }, "bullet_order", "ASC"],
         [{ model: BlogReference, as: "references" }, "reference_order", "ASC"],
       ],
     });
@@ -645,6 +749,7 @@ exports.deleteBlog = async (req, res) => {
     }
 
     await removeImage(blog.cover_image);
+
     if (Array.isArray(blog.tabs)) {
       for (const tab of blog.tabs) {
         await removeImage(tab.section_image);
@@ -664,6 +769,7 @@ exports.deleteBlog = async (req, res) => {
     });
   } catch (error) {
     await t.rollback();
+
     return res.status(500).json({
       status: false,
       responseCode: 500,

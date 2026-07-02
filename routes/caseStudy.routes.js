@@ -6,6 +6,15 @@ const auth = require('../middlewares/auth.middleware');
 const admin = require('../middlewares/admin.middleware');
 const upload = require('../middlewares/caseStudyUpload');
 
+const caseStudyExcelFields = upload.fields([
+  { name: 'excel_file', maxCount: 1 },
+  { name: 'cover_image', maxCount: 1 },
+  { name: 'pdf_file', maxCount: 1 }
+]);
+
+router.post('/preview-excel', auth, admin, caseStudyExcelFields, categoryController.previewCaseStudyExcel);
+router.post('/upload-excel', auth, admin, caseStudyExcelFields, categoryController.uploadCaseStudyExcel);
+
 router.post(
   '/',
   auth,

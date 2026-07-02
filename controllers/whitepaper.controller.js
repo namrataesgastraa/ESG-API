@@ -1,11 +1,170 @@
 const { WhitePaper, WhitePaperCategory } = require("../models");
-const { normalizeName } = require("../utils/string.helper");
+const { normalizeName, slugify } = require("../utils/string.helper");
 const { Op } = require("sequelize");
 const {
   uploadToS3,
   deleteFromS3,
   getKeyFromUrl,
 } = require("../utils/s3.helper");
+const { parseWhitePaperExcel } = require("../utils/whitePaperExcelParser");
+
+const uploadWhitePaperFile = async (file, folder) => {
+  if (!file) return null;
+  const safeName = file.originalname
+    .replace(/\s+/g, "-")
+    .replace(/,/g, "")
+    .replace(/[^a-zA-Z0-9.-]/g, "");
+  const key = `white-paper/${folder}/${Date.now()}-${safeName}`;
+  return uploadToS3(file.buffer, key, file.mimetype);
+};
+
+const summaryToDescription = (summary) => {
+  if (!summary || !Array.isArray(summary.paragraphs)) return "";
+  return summary.paragraphs.join(" ").slice(0, 500);
+};
+
+const saveWhitePaperFromExcel = async (req, res, payload) => {
+  const title = (payload.title || "").trim();
+
+  if (!title) {
+    return res.status(400).json({
+      status: false,
+      responseCode: 400,
+      message: "Title is required in the Basic Info sheet",
+    });
+  }
+
+  const normalized = normalizeName(title);
+
+  const existing = await WhitePaper.findOne({
+    where: { normalized_title: normalized, is_delete: false },
+  });
+
+  const coverUrl =
+    (await uploadWhitePaperFile(req.files?.cover_image?.[0], "image")) ||
+    payload.cover_image_url ||
+    null;
+
+  const pdfUrl =
+    (await uploadWhitePaperFile(req.files?.pdf_file?.[0], "pdf")) ||
+    payload.pdf_url ||
+    null;
+
+  const fields = {
+    title,
+    normalized_title: normalized,
+    slug: slugify(payload.slug) || slugify(title),
+    subtitle: payload.subtitle || null,
+    description: summaryToDescription(payload.summary_content),
+    eyebrow: payload.eyebrow || null,
+    industry_tag: payload.industry_tag || null,
+    category_tags: Array.isArray(payload.category_tags) ? payload.category_tags : [],
+    published_date: payload.published_date || null,
+    read_time: payload.read_time || null,
+    author_name: payload.author_name || null,
+    report_type: payload.report_type || null,
+    pages: payload.pages || null,
+    frameworks_covered: Array.isArray(payload.frameworks_covered)
+      ? payload.frameworks_covered
+      : [],
+    cover_alt: payload.cover_alt || null,
+    cover_caption: payload.cover_caption || null,
+    summary_content: payload.summary_content || null,
+    key_insights: Array.isArray(payload.key_insights) ? payload.key_insights : [],
+    related_whitepapers: Array.isArray(payload.related_whitepapers)
+      ? payload.related_whitepapers
+      : [],
+    graphical_enabled: Boolean(payload.graphical_enabled),
+    graphs: Array.isArray(payload.graphs) ? payload.graphs : [],
+    featured: Boolean(payload.featured),
+    is_active: Boolean(payload.published),
+  };
+
+  if (existing) {
+    if (coverUrl) {
+      fields.cover_image = coverUrl;
+      fields.image = coverUrl;
+    }
+    if (pdfUrl) {
+      fields.pdf_file = pdfUrl;
+    }
+    fields.updated_by = req.user?.id || null;
+    await existing.update(fields);
+
+    return res.status(200).json({
+      status: true,
+      responseCode: 200,
+      message: "Whitepaper updated",
+      data: { id: existing.id, title: existing.title, slug: existing.slug },
+    });
+  }
+
+  const data = await WhitePaper.create({
+    ...fields,
+    cover_image: coverUrl,
+    image: coverUrl,
+    pdf_file: pdfUrl,
+    created_by: req.user?.id || null,
+  });
+
+  return res.status(200).json({
+    status: true,
+    responseCode: 200,
+    message: "Whitepaper created",
+    data: { id: data.id, title: data.title, slug: data.slug },
+  });
+};
+
+exports.previewWhitePaperExcel = async (req, res) => {
+  try {
+    const excelFile = req.files?.excel_file?.[0];
+    if (!excelFile) {
+      return res.status(400).json({
+        status: false,
+        responseCode: 400,
+        message: "excel_file is required",
+      });
+    }
+
+    const payload = parseWhitePaperExcel(excelFile.buffer);
+
+    return res.status(200).json({
+      status: true,
+      responseCode: 200,
+      message: "Whitepaper preview generated",
+      data: payload,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      status: false,
+      responseCode: 500,
+      message: error.message,
+    });
+  }
+};
+
+exports.uploadWhitePaperExcel = async (req, res) => {
+  try {
+    const excelFile = req.files?.excel_file?.[0];
+    if (!excelFile) {
+      return res.status(400).json({
+        status: false,
+        responseCode: 400,
+        message: "excel_file is required",
+      });
+    }
+
+    const payload = parseWhitePaperExcel(excelFile.buffer);
+
+    return saveWhitePaperFromExcel(req, res, payload);
+  } catch (error) {
+    return res.status(500).json({
+      status: false,
+      responseCode: 500,
+      message: error.message,
+    });
+  }
+};
 
 exports.createWhitePaper = async (req, res) => {
   try {
@@ -250,6 +409,8 @@ exports.getAllWhitePapers = async (req, res) => {
         "normalized_title",
         "description",
         "category_id",
+        "industry_tag",
+        "slug",
         "pdf_file",
         "image",
         "is_active",
@@ -301,6 +462,8 @@ exports.getWhitePaperById = async (req, res) => {
         "normalized_title",
         "description",
         "category_id",
+        "industry_tag",
+        "slug",
         "pdf_file",
         "image",
         "is_active",

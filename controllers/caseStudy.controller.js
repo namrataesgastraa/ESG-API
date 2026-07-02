@@ -1,7 +1,146 @@
 const { CaseStudy, Category } = require('../models');
-const { normalizeName } = require('../utils/string.helper');
+const { normalizeName, slugify } = require('../utils/string.helper');
 const { Op } = require('sequelize');
 const { uploadToS3, deleteFromS3, getKeyFromUrl } = require('../utils/s3.helper');
+const { parseCaseStudyExcel } = require('../utils/caseStudyExcelParser');
+
+const uploadCaseStudyFile = async (file, folder) => {
+  if (!file) return null;
+  const safeName = file.originalname
+    .replace(/\s+/g, '-')
+    .replace(/,/g, '')
+    .replace(/[^a-zA-Z0-9.-]/g, '');
+  const key = `case-study/${folder}/${Date.now()}-${safeName}`;
+  return uploadToS3(file.buffer, key, file.mimetype);
+};
+
+const summaryToDescription = (summary) => {
+  if (!summary || !Array.isArray(summary.paragraphs)) return '';
+  return summary.paragraphs.join(' ').slice(0, 500);
+};
+
+const saveCaseStudyFromExcel = async (req, res, payload) => {
+  const title = (payload.title || '').trim();
+
+  if (!title) {
+    return res.status(400).json({
+      status: false,
+      responseCode: 400,
+      message: 'Title is required in the Basic Info sheet',
+    });
+  }
+
+  const normalized = normalizeName(title);
+
+  const exists = await CaseStudy.findOne({
+    where: { normalized_title: normalized, is_delete: false },
+  });
+
+  if (exists) {
+    return res.status(400).json({
+      status: false,
+      responseCode: 400,
+      message: 'Case study title already exists',
+    });
+  }
+
+  const coverUrl =
+    (await uploadCaseStudyFile(req.files?.cover_image?.[0], 'image')) ||
+    payload.cover_image_url ||
+    null;
+
+  const pdfUrl =
+    (await uploadCaseStudyFile(req.files?.pdf_file?.[0], 'pdf')) ||
+    payload.pdf_url ||
+    null;
+
+  const data = await CaseStudy.create({
+    title,
+    normalized_title: normalized,
+    slug: slugify(payload.slug) || slugify(title),
+    subtitle: payload.subtitle || null,
+    description: summaryToDescription(payload.summary_content),
+    eyebrow: payload.eyebrow || null,
+    industry_tag: payload.industry_tag || null,
+    category_tags: Array.isArray(payload.category_tags) ? payload.category_tags : [],
+    published_date: payload.published_date || null,
+    read_time: payload.read_time || null,
+    author_name: payload.author_name || null,
+    cover_image: coverUrl,
+    image: coverUrl,
+    cover_alt: payload.cover_alt || null,
+    cover_caption: payload.cover_caption || null,
+    pdf_file: pdfUrl,
+    summary_content: payload.summary_content || null,
+    key_insights: Array.isArray(payload.key_insights) ? payload.key_insights : [],
+    related_case_studies: Array.isArray(payload.related_case_studies)
+      ? payload.related_case_studies
+      : [],
+    featured: Boolean(payload.featured),
+    is_active: Boolean(payload.published),
+    created_by: req.user?.id || null,
+  });
+
+  return res.status(200).json({
+    status: true,
+    responseCode: 200,
+    message: 'Case study created',
+    data: { id: data.id, title: data.title, slug: data.slug },
+  });
+};
+
+exports.previewCaseStudyExcel = async (req, res) => {
+  try {
+    const excelFile = req.files?.excel_file?.[0];
+
+    if (!excelFile) {
+      return res.status(400).json({
+        status: false,
+        responseCode: 400,
+        message: 'excel_file is required',
+      });
+    }
+
+    const payload = parseCaseStudyExcel(excelFile.buffer);
+
+    return res.status(200).json({
+      status: true,
+      responseCode: 200,
+      message: 'Case study preview generated',
+      data: payload,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      status: false,
+      responseCode: 500,
+      message: error.message,
+    });
+  }
+};
+
+exports.uploadCaseStudyExcel = async (req, res) => {
+  try {
+    const excelFile = req.files?.excel_file?.[0];
+
+    if (!excelFile) {
+      return res.status(400).json({
+        status: false,
+        responseCode: 400,
+        message: 'excel_file is required',
+      });
+    }
+
+    const payload = parseCaseStudyExcel(excelFile.buffer);
+
+    return saveCaseStudyFromExcel(req, res, payload);
+  } catch (error) {
+    return res.status(500).json({
+      status: false,
+      responseCode: 500,
+      message: error.message,
+    });
+  }
+};
 
 exports.createCaseStudy = async (req, res) => {
   try {

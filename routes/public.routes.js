@@ -12,6 +12,8 @@ router.get('/white-papers', publicAuth, controller.getPublicWhitePaper);
 router.post('/white-paper-download', publicAuth, controller.downloadWhitePaper);
 
 router.get('/blogs', publicAuth, controller.getPublicBlogs);
+router.get('/blog-detail/:id', controller.getPublicBlogDetail);
+
 router.post('/blog-download', publicAuth, controller.downloadBlog);
 
 module.exports = router;
