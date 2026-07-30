@@ -86,7 +86,7 @@ exports.login = async (req, res) => {
     return res.status(500).json({
       status: false,
       responseCode: 500,
-      message: error.message
+      message: 'Internal server error'
     });
   }
 };
@@ -105,7 +105,8 @@ exports.refreshToken = async (req, res) => {
 
     const decoded = jwt.verify(
       refresh_token,
-      process.env.JWT_REFRESH_SECRET
+      process.env.JWT_REFRESH_SECRET,
+      { algorithms: ['HS256'] }
     );
 
     const user = await User.findByPk(decoded.id);
@@ -138,10 +139,17 @@ exports.refreshToken = async (req, res) => {
     });
 
   } catch (error) {
+    if (error.name === 'TokenExpiredError' || error.name === 'JsonWebTokenError') {
+      return res.status(401).json({
+        status: false,
+        responseCode: 401,
+        message: 'Invalid or expired refresh token'
+      });
+    }
     return res.status(500).json({
       status: false,
       responseCode: 500,
-      message: error.message
+      message: 'Internal server error'
     });
   }
 };
@@ -183,7 +191,7 @@ exports.getProfile = async (req, res) => {
     return res.status(500).json({
       status: false,
       responseCode: 500,
-      message: error.message
+      message: 'Internal server error'
     });
   }
 };

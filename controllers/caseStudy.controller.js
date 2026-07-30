@@ -19,6 +19,29 @@ const summaryToDescription = (summary) => {
   return summary.paragraphs.join(' ').slice(0, 500);
 };
 
+const buildCaseStudyExcelFields = (payload, title, normalized) => ({
+  title,
+  normalized_title: normalized,
+  slug: slugify(payload.slug) || slugify(title),
+  subtitle: payload.subtitle || null,
+  description: summaryToDescription(payload.summary_content),
+  eyebrow: payload.eyebrow || null,
+  industry_tag: payload.industry_tag || null,
+  category_tags: Array.isArray(payload.category_tags) ? payload.category_tags : [],
+  published_date: payload.published_date || null,
+  read_time: payload.read_time || null,
+  author_name: payload.author_name || null,
+  cover_alt: payload.cover_alt || null,
+  cover_caption: payload.cover_caption || null,
+  summary_content: payload.summary_content || null,
+  key_insights: Array.isArray(payload.key_insights) ? payload.key_insights : [],
+  related_case_studies: Array.isArray(payload.related_case_studies)
+    ? payload.related_case_studies
+    : [],
+  featured: Boolean(payload.featured),
+  is_active: Boolean(payload.published),
+});
+
 const saveCaseStudyFromExcel = async (req, res, payload) => {
   const title = (payload.title || '').trim();
 
@@ -55,29 +78,10 @@ const saveCaseStudyFromExcel = async (req, res, payload) => {
     null;
 
   const data = await CaseStudy.create({
-    title,
-    normalized_title: normalized,
-    slug: slugify(payload.slug) || slugify(title),
-    subtitle: payload.subtitle || null,
-    description: summaryToDescription(payload.summary_content),
-    eyebrow: payload.eyebrow || null,
-    industry_tag: payload.industry_tag || null,
-    category_tags: Array.isArray(payload.category_tags) ? payload.category_tags : [],
-    published_date: payload.published_date || null,
-    read_time: payload.read_time || null,
-    author_name: payload.author_name || null,
+    ...buildCaseStudyExcelFields(payload, title, normalized),
     cover_image: coverUrl,
     image: coverUrl,
-    cover_alt: payload.cover_alt || null,
-    cover_caption: payload.cover_caption || null,
     pdf_file: pdfUrl,
-    summary_content: payload.summary_content || null,
-    key_insights: Array.isArray(payload.key_insights) ? payload.key_insights : [],
-    related_case_studies: Array.isArray(payload.related_case_studies)
-      ? payload.related_case_studies
-      : [],
-    featured: Boolean(payload.featured),
-    is_active: Boolean(payload.published),
     created_by: req.user?.id || null,
   });
 
@@ -133,6 +137,99 @@ exports.uploadCaseStudyExcel = async (req, res) => {
     const payload = parseCaseStudyExcel(excelFile.buffer);
 
     return saveCaseStudyFromExcel(req, res, payload);
+  } catch (error) {
+    return res.status(500).json({
+      status: false,
+      responseCode: 500,
+      message: error.message,
+    });
+  }
+};
+
+exports.updateCaseStudyExcel = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const caseStudy = await CaseStudy.findOne({
+      where: { id, is_delete: false },
+    });
+
+    if (!caseStudy) {
+      return res.status(404).json({
+        status: false,
+        responseCode: 404,
+        message: 'Case study not found',
+      });
+    }
+
+    const excelFile = req.files?.excel_file?.[0];
+
+    if (excelFile) {
+      const payload = parseCaseStudyExcel(excelFile.buffer);
+      const title = (payload.title || '').trim();
+
+      if (!title) {
+        return res.status(400).json({
+          status: false,
+          responseCode: 400,
+          message: 'Title is required in the Basic Info sheet',
+        });
+      }
+
+      const normalized = normalizeName(title);
+
+      const exists = await CaseStudy.findOne({
+        where: {
+          normalized_title: normalized,
+          is_delete: false,
+          id: { [Op.ne]: caseStudy.id },
+        },
+      });
+
+      if (exists) {
+        return res.status(400).json({
+          status: false,
+          responseCode: 400,
+          message: 'Case study title already exists',
+        });
+      }
+
+      const fields = buildCaseStudyExcelFields(payload, title, normalized);
+      // Preserve the existing slug on edit unless the Excel explicitly sets a new one —
+      // other resources' "Related" cards link by slug, so an incidental slug change breaks them.
+      if (!slugify(payload.slug)) {
+        fields.slug = caseStudy.slug;
+      }
+      Object.assign(caseStudy, fields);
+    }
+
+    if (req.files?.cover_image?.[0]) {
+      if (caseStudy.image) {
+        const oldKey = getKeyFromUrl(caseStudy.image);
+        if (oldKey) await deleteFromS3(oldKey);
+      }
+      const coverUrl = await uploadCaseStudyFile(req.files.cover_image[0], 'image');
+      caseStudy.cover_image = coverUrl;
+      caseStudy.image = coverUrl;
+    }
+
+    if (req.files?.pdf_file?.[0]) {
+      if (caseStudy.pdf_file) {
+        const oldKey = getKeyFromUrl(caseStudy.pdf_file);
+        if (oldKey) await deleteFromS3(oldKey);
+      }
+      caseStudy.pdf_file = await uploadCaseStudyFile(req.files.pdf_file[0], 'pdf');
+    }
+
+    caseStudy.updated_by = req.user?.id || null;
+    await caseStudy.save();
+
+    return res.status(200).json({
+      status: true,
+      responseCode: 200,
+      message: 'Case study updated',
+      data: { id: caseStudy.id, title: caseStudy.title, slug: caseStudy.slug },
+    });
   } catch (error) {
     return res.status(500).json({
       status: false,
@@ -414,7 +511,13 @@ exports.getCaseStudyById = async (req, res) => {
 
     const data = await CaseStudy.findOne({
       where: { id, is_delete: false },
-      attributes: ['id', 'title', 'normalized_title', 'description', 'category_id', 'pdf_file', 'image','is_active', 'createdAt','updatedAt'],
+      attributes: [
+        'id', 'title', 'normalized_title', 'description', 'category_id', 'pdf_file', 'image',
+        'is_active', 'createdAt', 'updatedAt',
+        'slug', 'subtitle', 'eyebrow', 'industry_tag', 'category_tags', 'published_date',
+        'read_time', 'author_name', 'cover_image', 'cover_alt', 'cover_caption',
+        'summary_content', 'key_insights', 'related_case_studies', 'featured',
+      ],
       include: [
         {
           model: Category,

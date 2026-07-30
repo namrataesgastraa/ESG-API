@@ -9,7 +9,7 @@ exports.getAllDownloadLogs = async (req, res) => {
     limit = Math.min(parseInt(limit), 50);
     const offset = (page - 1) * limit;
 
-    const buildWhere = (includeCategory) => {
+    const buildWhere = (includeCategory, includeName) => {
       const where = {};
       if (search) {
         const conditions = [
@@ -19,6 +19,9 @@ exports.getAllDownloadLogs = async (req, res) => {
         ];
         if (includeCategory) {
           conditions.push({ category_name: { [Op.iLike]: `%${search}%` } });
+        }
+        if (includeName) {
+          conditions.push({ name: { [Op.iLike]: `%${search}%` } });
         }
         where[Op.or] = conditions;
       }
@@ -31,13 +34,13 @@ exports.getAllDownloadLogs = async (req, res) => {
 
     const [caseStudyLogs, blogLogs, whitePaperLogs] = await Promise.all([
       fetchCaseStudy
-        ? CaseStudyDownload.findAll({ where: buildWhere(true), order: [['createdAt', 'DESC']] })
+        ? CaseStudyDownload.findAll({ where: buildWhere(true, true), order: [['createdAt', 'DESC']] })
         : [],
       fetchBlog
-        ? BlogDownload.findAll({ where: buildWhere(false), order: [['createdAt', 'DESC']] })
+        ? BlogDownload.findAll({ where: buildWhere(false, false), order: [['createdAt', 'DESC']] })
         : [],
       fetchWhitePaper
-        ? WhitePaperDownload.findAll({ where: buildWhere(true), order: [['createdAt', 'DESC']] })
+        ? WhitePaperDownload.findAll({ where: buildWhere(true, true), order: [['createdAt', 'DESC']] })
         : []
     ]);
 
@@ -48,6 +51,7 @@ exports.getAllDownloadLogs = async (req, res) => {
           id: obj.id,
           type: 'case_study',
           resource_id: obj.case_study_id,
+          name: obj.name,
           email: obj.email,
           mobile: obj.mobile,
           title: obj.title,
@@ -63,6 +67,7 @@ exports.getAllDownloadLogs = async (req, res) => {
           id: obj.id,
           type: 'blog',
           resource_id: obj.blog_id,
+          name: null,
           email: obj.email,
           mobile: obj.mobile,
           title: obj.title,
@@ -78,6 +83,7 @@ exports.getAllDownloadLogs = async (req, res) => {
           id: obj.id,
           type: 'white_paper',
           resource_id: obj.white_paper_id,
+          name: obj.name,
           email: obj.email,
           mobile: obj.mobile,
           title: obj.title,

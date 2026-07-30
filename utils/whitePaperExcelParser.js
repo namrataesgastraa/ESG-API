@@ -66,6 +66,15 @@ const parseSummary = (rows) => {
   const paragraphs = [];
   const bullets = [];
 
+  const paragraphsByParentId = new Map();
+  rows.forEach((row) => {
+    if (clean(row.Type).toLowerCase() !== "paragraph") return;
+    const parentId = Number(row.ParentId);
+    if (!paragraphsByParentId.has(parentId)) paragraphsByParentId.set(parentId, []);
+    const content = clean(row.Content);
+    if (content) paragraphsByParentId.get(parentId).push(content);
+  });
+
   rows.forEach((row) => {
     const type = clean(row.Type).toLowerCase();
     const content = clean(row.Content);
@@ -79,11 +88,7 @@ const parseSummary = (rows) => {
     }
 
     if (type === "bullet") {
-      const childParagraphs = rows
-        .filter((child) => Number(child.ParentId) === rowId)
-        .filter((child) => clean(child.Type).toLowerCase() === "paragraph")
-        .map((child) => clean(child.Content))
-        .filter(Boolean);
+      const childParagraphs = paragraphsByParentId.get(rowId) || [];
 
       bullets.push({ lead: content, body: childParagraphs.join("\n\n") });
     }

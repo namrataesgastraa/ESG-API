@@ -23,6 +23,36 @@ const summaryToDescription = (summary) => {
   return summary.paragraphs.join(" ").slice(0, 500);
 };
 
+const buildWhitePaperExcelFields = (payload, title, normalized) => ({
+  title,
+  normalized_title: normalized,
+  slug: slugify(payload.slug) || slugify(title),
+  subtitle: payload.subtitle || null,
+  description: summaryToDescription(payload.summary_content),
+  eyebrow: payload.eyebrow || null,
+  industry_tag: payload.industry_tag || null,
+  category_tags: Array.isArray(payload.category_tags) ? payload.category_tags : [],
+  published_date: payload.published_date || null,
+  read_time: payload.read_time || null,
+  author_name: payload.author_name || null,
+  report_type: payload.report_type || null,
+  pages: payload.pages || null,
+  frameworks_covered: Array.isArray(payload.frameworks_covered)
+    ? payload.frameworks_covered
+    : [],
+  cover_alt: payload.cover_alt || null,
+  cover_caption: payload.cover_caption || null,
+  summary_content: payload.summary_content || null,
+  key_insights: Array.isArray(payload.key_insights) ? payload.key_insights : [],
+  related_whitepapers: Array.isArray(payload.related_whitepapers)
+    ? payload.related_whitepapers
+    : [],
+  graphical_enabled: Boolean(payload.graphical_enabled),
+  graphs: Array.isArray(payload.graphs) ? payload.graphs : [],
+  featured: Boolean(payload.featured),
+  is_active: Boolean(payload.published),
+});
+
 const saveWhitePaperFromExcel = async (req, res, payload) => {
   const title = (payload.title || "").trim();
 
@@ -50,35 +80,7 @@ const saveWhitePaperFromExcel = async (req, res, payload) => {
     payload.pdf_url ||
     null;
 
-  const fields = {
-    title,
-    normalized_title: normalized,
-    slug: slugify(payload.slug) || slugify(title),
-    subtitle: payload.subtitle || null,
-    description: summaryToDescription(payload.summary_content),
-    eyebrow: payload.eyebrow || null,
-    industry_tag: payload.industry_tag || null,
-    category_tags: Array.isArray(payload.category_tags) ? payload.category_tags : [],
-    published_date: payload.published_date || null,
-    read_time: payload.read_time || null,
-    author_name: payload.author_name || null,
-    report_type: payload.report_type || null,
-    pages: payload.pages || null,
-    frameworks_covered: Array.isArray(payload.frameworks_covered)
-      ? payload.frameworks_covered
-      : [],
-    cover_alt: payload.cover_alt || null,
-    cover_caption: payload.cover_caption || null,
-    summary_content: payload.summary_content || null,
-    key_insights: Array.isArray(payload.key_insights) ? payload.key_insights : [],
-    related_whitepapers: Array.isArray(payload.related_whitepapers)
-      ? payload.related_whitepapers
-      : [],
-    graphical_enabled: Boolean(payload.graphical_enabled),
-    graphs: Array.isArray(payload.graphs) ? payload.graphs : [],
-    featured: Boolean(payload.featured),
-    is_active: Boolean(payload.published),
-  };
+  const fields = buildWhitePaperExcelFields(payload, title, normalized);
 
   if (existing) {
     if (coverUrl) {
@@ -157,6 +159,99 @@ exports.uploadWhitePaperExcel = async (req, res) => {
     const payload = parseWhitePaperExcel(excelFile.buffer);
 
     return saveWhitePaperFromExcel(req, res, payload);
+  } catch (error) {
+    return res.status(500).json({
+      status: false,
+      responseCode: 500,
+      message: error.message,
+    });
+  }
+};
+
+exports.updateWhitePaperExcel = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const whitePaper = await WhitePaper.findOne({
+      where: { id, is_delete: false },
+    });
+
+    if (!whitePaper) {
+      return res.status(404).json({
+        status: false,
+        responseCode: 404,
+        message: "White Paper not found",
+      });
+    }
+
+    const excelFile = req.files?.excel_file?.[0];
+
+    if (excelFile) {
+      const payload = parseWhitePaperExcel(excelFile.buffer);
+      const title = (payload.title || "").trim();
+
+      if (!title) {
+        return res.status(400).json({
+          status: false,
+          responseCode: 400,
+          message: "Title is required in the Basic Info sheet",
+        });
+      }
+
+      const normalized = normalizeName(title);
+
+      const exists = await WhitePaper.findOne({
+        where: {
+          normalized_title: normalized,
+          is_delete: false,
+          id: { [Op.ne]: whitePaper.id },
+        },
+      });
+
+      if (exists) {
+        return res.status(400).json({
+          status: false,
+          responseCode: 400,
+          message: "White Paper title already exists",
+        });
+      }
+
+      const fields = buildWhitePaperExcelFields(payload, title, normalized);
+      // Preserve the existing slug on edit unless the Excel explicitly sets a new one —
+      // other resources' "Related" cards link by slug, so an incidental slug change breaks them.
+      if (!slugify(payload.slug)) {
+        fields.slug = whitePaper.slug;
+      }
+      Object.assign(whitePaper, fields);
+    }
+
+    if (req.files?.cover_image?.[0]) {
+      if (whitePaper.image) {
+        const oldKey = getKeyFromUrl(whitePaper.image);
+        if (oldKey) await deleteFromS3(oldKey);
+      }
+      const coverUrl = await uploadWhitePaperFile(req.files.cover_image[0], "image");
+      whitePaper.cover_image = coverUrl;
+      whitePaper.image = coverUrl;
+    }
+
+    if (req.files?.pdf_file?.[0]) {
+      if (whitePaper.pdf_file) {
+        const oldKey = getKeyFromUrl(whitePaper.pdf_file);
+        if (oldKey) await deleteFromS3(oldKey);
+      }
+      whitePaper.pdf_file = await uploadWhitePaperFile(req.files.pdf_file[0], "pdf");
+    }
+
+    whitePaper.updated_by = req.user?.id || null;
+    await whitePaper.save();
+
+    return res.status(200).json({
+      status: true,
+      responseCode: 200,
+      message: "White Paper updated",
+      data: { id: whitePaper.id, title: whitePaper.title, slug: whitePaper.slug },
+    });
   } catch (error) {
     return res.status(500).json({
       status: false,
@@ -469,6 +564,24 @@ exports.getWhitePaperById = async (req, res) => {
         "is_active",
         "createdAt",
         "updatedAt",
+        "subtitle",
+        "eyebrow",
+        "category_tags",
+        "published_date",
+        "read_time",
+        "author_name",
+        "report_type",
+        "pages",
+        "frameworks_covered",
+        "cover_image",
+        "cover_alt",
+        "cover_caption",
+        "summary_content",
+        "key_insights",
+        "related_whitepapers",
+        "graphical_enabled",
+        "graphs",
+        "featured",
       ],
       include: [
         {

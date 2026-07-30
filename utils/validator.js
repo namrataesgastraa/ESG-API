@@ -28,6 +28,16 @@ class Validator {
       return false;
     }
   }
+
+  static isPan(pan) {
+    if (!pan) return false;
+    return /^[A-Z]{5}[0-9]{4}[A-Z]$/.test(String(pan).trim().toUpperCase());
+  }
+
+  static isIndianMobile(mobile) {
+    if (!mobile) return false;
+    return /^[6-9]\d{9}$/.test(String(mobile).trim());
+  }
 }
 
 module.exports = Validator;

@@ -14,6 +14,7 @@ const caseStudyExcelFields = upload.fields([
 
 router.post('/preview-excel', auth, admin, caseStudyExcelFields, categoryController.previewCaseStudyExcel);
 router.post('/upload-excel', auth, admin, caseStudyExcelFields, categoryController.uploadCaseStudyExcel);
+router.put('/:id/upload-excel', auth, admin, caseStudyExcelFields, categoryController.updateCaseStudyExcel);
 
 router.post(
   '/',

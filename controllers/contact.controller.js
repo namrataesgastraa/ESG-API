@@ -35,10 +35,25 @@ const formConfig = {
     emailField: 'work_email',
     nameField: 'first_name',
     subject: 'New Newsletter Subscription - ESG Astraa'
+  },
+  insights_subscribe: {
+    requiredFields: ['name', 'email'],
+    emailField: 'email',
+    nameField: 'name',
+    subject: 'New Insights Subscriber - ESG Astraa'
+  },
+  insights_feedback: {
+    requiredFields: ['message'],
+    emailField: null,
+    nameField: null,
+    subject: 'New Insights Feedback - ESG Astraa'
   }
 };
 
+const FEEDBACK_LOG_EMAIL = 'feedback@esgastraa.com';
+
 const resolveName = (config, payload) => {
+  if (!config.nameField) return 'Website Visitor';
   if (Array.isArray(config.nameField)) {
     return config.nameField.map(f => payload[f] || '').join(' ').trim();
   }
@@ -76,7 +91,8 @@ const buildUserHtml = (form_type, name) => {
     request_assessment: 'Your assessment request has been received. We will review your details and reach out within 24 hours with a tailored proposal.',
     request_call: 'Your call request has been received. Our team will get back to you within 24 hours.',
     download_resource: 'Thank you for your interest. Your download request has been received and we will follow up shortly.',
-    newsletter_subscribe: 'You have been subscribed to ESG Pulse — the weekly ESG briefing for Indian practitioners. Look out for your first issue this Friday.'
+    newsletter_subscribe: 'You have been subscribed to ESG Pulse — the weekly ESG briefing for Indian practitioners. Look out for your first issue this Friday.',
+    insights_subscribe: 'You have been subscribed to ESG Astraa Insights. Look out for curated ESG research, regulation updates and expert analysis in your inbox.'
   };
 
   return `<div style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto;border:1px solid #e0e0e0;border-radius:8px;overflow:hidden">
@@ -89,7 +105,7 @@ const buildUserHtml = (form_type, name) => {
       <p style="color:#444;line-height:1.6;font-size:15px;margin-top:24px">Best regards,<br><strong>ESG Astraa Team</strong></p>
     </div>
     <div style="padding:16px 24px;background:#f5f5f5;border-top:1px solid #e0e0e0;font-size:12px;color:#888">
-      advisory@esgastraa.com &nbsp;|&nbsp; +91 9409025555
+      info@esgastraa.com &nbsp;|&nbsp; +91 9011422555 &nbsp;|&nbsp; +91 9409025555
     </div>
   </div>`;
 };
@@ -125,9 +141,10 @@ exports.submitContactForm = async (req, res) => {
       });
     }
 
-    const userEmail = payload[config.emailField];
+    const hasUserEmail = Boolean(config.emailField);
+    const userEmail = hasUserEmail ? payload[config.emailField] : null;
 
-    if (!Validator.isEmail(userEmail)) {
+    if (hasUserEmail && !Validator.isEmail(userEmail)) {
       return res.status(400).json({
         status: false,
         responseCode: 400,
@@ -148,11 +165,13 @@ exports.submitContactForm = async (req, res) => {
         html: buildAdminHtml(form_type, name, payload)
       });
 
-      await sendEmail({
-        to: userEmail,
-        subject: 'We received your request — ESG Astraa',
-        html: buildUserHtml(form_type, name)
-      });
+      if (hasUserEmail) {
+        await sendEmail({
+          to: userEmail,
+          subject: 'We received your request — ESG Astraa',
+          html: buildUserHtml(form_type, name)
+        });
+      }
 
       sentAt = new Date();
     } catch (emailError) {
@@ -164,7 +183,7 @@ exports.submitContactForm = async (req, res) => {
     await ContactLog.create({
       form_type,
       name,
-      email: userEmail,
+      email: hasUserEmail ? userEmail : FEEDBACK_LOG_EMAIL,
       payload,
       status,
       error_message: errorMessage,

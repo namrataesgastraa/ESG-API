@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 
-const whitePaperController = require("../controllers/whitepaper.controller");
+const whitePaperController = require("../controllers/whitePaper.controller");
 const auth = require("../middlewares/auth.middleware");
 const admin = require("../middlewares/admin.middleware");
 const upload = require("../middlewares/caseStudyUpload");
@@ -14,6 +14,7 @@ const whitePaperExcelFields = upload.fields([
 
 router.post("/preview-excel", auth, admin, whitePaperExcelFields, whitePaperController.previewWhitePaperExcel);
 router.post("/upload-excel", auth, admin, whitePaperExcelFields, whitePaperController.uploadWhitePaperExcel);
+router.put("/:id/upload-excel", auth, admin, whitePaperExcelFields, whitePaperController.updateWhitePaperExcel);
 
 router.post(
   "/",

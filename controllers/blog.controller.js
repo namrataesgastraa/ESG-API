@@ -171,7 +171,6 @@ const saveBlogFromPayload = async (req, res, payload) => {
   },
   { transaction: t }
 );
-console.log("SAVED BLOG:", blog.toJSON());
     const tabRows = [];
     const bulletRows = [];
 
@@ -220,6 +219,11 @@ console.log("SAVED BLOG:", blog.toJSON());
       if (bulletRows.length > 0) {
         const bulletRowsWithTabId = bulletRows.map((bullet) => {
           const tab = createdTabs.find((t) => t.tab_order === bullet.tab_order);
+          if (!tab) {
+            throw new Error(
+              `No tab found with tab_order ${bullet.tab_order} for bullet "${bullet.lead}"`
+            );
+          }
           return {
             blog_tab_id: tab.id,
             bullet_order: bullet.bullet_order,
@@ -316,8 +320,6 @@ exports.previewBlogExcel = async (req, res) => {
     }
 
     const payload = parseBlogExcel(excelFile.buffer);
-    console.log("KEY TAKEAWAYS FROM EXCEL:");
-console.log(payload.key_takeaways);
 
     return res.status(200).json({
       status: true,
@@ -357,13 +359,12 @@ exports.uploadBlogExcel = async (req, res) => {
   }
 };
 
-exports.updateBlog = async (req, res) => {
+const updateBlogFromPayload = async (req, res, payload) => {
   const t = await sequelize.transaction();
   const uploadedUrls = [];
 
   try {
     const { id } = req.params;
-    const payload = parsePayload(req.body);
 
     const blog = await Blog.findOne({
       where: { id, is_delete: false },
@@ -585,6 +586,33 @@ exports.updateBlog = async (req, res) => {
       await removeImage(url);
     }
 
+    return res.status(500).json({
+      status: false,
+      responseCode: 500,
+      message: error.message,
+    });
+  }
+};
+
+exports.updateBlog = async (req, res) => {
+  return updateBlogFromPayload(req, res, parsePayload(req.body));
+};
+
+exports.updateBlogExcel = async (req, res) => {
+  try {
+    const excelFile = req.files?.excel_file?.[0];
+
+    if (!excelFile) {
+      return res.status(400).json({
+        status: false,
+        responseCode: 400,
+        message: "excel_file is required",
+      });
+    }
+
+    const payload = parseBlogExcel(excelFile.buffer);
+    return updateBlogFromPayload(req, res, payload);
+  } catch (error) {
     return res.status(500).json({
       status: false,
       responseCode: 500,

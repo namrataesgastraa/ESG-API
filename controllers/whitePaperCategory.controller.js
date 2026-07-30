@@ -120,7 +120,7 @@ exports.getAllCategories = async (req, res) => {
     let { page = 1, limit = 10, search = "" } = req.query;
 
     page = parseInt(page);
-    limit = parseInt(limit);
+    limit = Math.min(parseInt(limit) || 10, 50);
     const offset = (page - 1) * limit;
 
     const whereCondition = {

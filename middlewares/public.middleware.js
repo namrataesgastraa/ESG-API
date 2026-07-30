@@ -12,7 +12,7 @@ module.exports = (req, res, next) => {
       });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
     if (decoded.type !== 'public') {
       return res.status(401).json({
         status: false,

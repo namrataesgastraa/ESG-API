@@ -7,7 +7,7 @@ const app = express();
 
 const allowedOrigins = [
   "https://esgastraa.com",
-  "https://oneconnectx.com/",
+  "https://oneconnectx.com",
   "http://localhost:5000",
   "http://localhost:3000",
   "http://localhost:3001",
@@ -46,6 +46,12 @@ const blogDownloadRoutes = require("./routes/blogDownload.routes");
 const publicRoutes = require("./routes/public.routes");
 const industriesRoutes = require("./routes/industries.routes");
 const contactRoutes = require("./routes/contact.routes");
+const announcementRoutes = require("./routes/announcement.routes");
+const homeFaqRoutes = require("./routes/homeFaq.routes");
+const featuredInsightRoutes = require("./routes/featuredInsight.routes");
+const podcastRoutes = require("./routes/podcast.routes");
+const jobOpeningRoutes = require("./routes/jobOpening.routes");
+const jobApplicationRoutes = require("./routes/jobApplication.routes");
 
 app.use("/api/auth", authRoutes);
 app.use("/api/category", categoryRoutes);
@@ -59,6 +65,12 @@ app.use("/api/blog-download", blogDownloadRoutes);
 app.use("/api/public", publicRoutes);
 app.use("/api/industries", industriesRoutes);
 app.use("/api/contact", contactRoutes);
+app.use("/api/announcement", announcementRoutes);
+app.use("/api/home-faq", homeFaqRoutes);
+app.use("/api/featured-insight", featuredInsightRoutes);
+app.use("/api/podcast", podcastRoutes);
+app.use("/api/job-opening", jobOpeningRoutes);
+app.use("/api/job-application", jobApplicationRoutes);
 
 app.get("/", (req, res) => {
   res.send("API Running...");

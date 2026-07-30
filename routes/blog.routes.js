@@ -22,6 +22,7 @@ const blogExcelUploadFields = upload.fields([
 ]);
 router.post("/preview-excel", auth, admin, blogExcelUploadFields, blogController.previewBlogExcel);
 router.post("/upload-excel", auth, admin, blogExcelUploadFields, blogController.uploadBlogExcel);
+router.put("/:id/upload-excel", auth, admin, blogExcelUploadFields, blogController.updateBlogExcel);
 
 router.post("/", auth, admin, blogUploadFields, blogController.createBlog);
 router.get("/", auth, admin, blogController.getAllBlogs);
