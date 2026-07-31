@@ -105,7 +105,7 @@ const buildUserHtml = (form_type, name) => {
       <p style="color:#444;line-height:1.6;font-size:15px;margin-top:24px">Best regards,<br><strong>ESG Astraa Team</strong></p>
     </div>
     <div style="padding:16px 24px;background:#f5f5f5;border-top:1px solid #e0e0e0;font-size:12px;color:#888">
-      info@esgastraa.com &nbsp;|&nbsp; +91 9011422555 &nbsp;|&nbsp; +91 9409025555
+      support@esgastraa.com &nbsp;|&nbsp; +91 9011422555 &nbsp;|&nbsp; +91 9409025555
     </div>
   </div>`;
 };
