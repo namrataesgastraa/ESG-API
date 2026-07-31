@@ -424,7 +424,7 @@ exports.downloadCaseStudy = async (req, res) => {
       });
     }
 
-    if (!Validator.isEmail(email) || !Validator.isMobile(mobile)) {
+    if (!Validator.isEmail(email) || !Validator.isIndianMobile(mobile)) {
       return res.status(400).json({
         status: false,
         responseCode: 400,
@@ -609,7 +609,7 @@ exports.downloadWhitePaper = async (req, res) => {
       });
     }
 
-    if (!Validator.isEmail(email) || !Validator.isMobile(mobile)) {
+    if (!Validator.isEmail(email) || !Validator.isIndianMobile(mobile)) {
       return res.status(400).json({
         status: false,
         responseCode: 400,
@@ -766,7 +766,7 @@ exports.downloadBlog = async (req, res) => {
       });
     }
 
-    if (!Validator.isEmail(email) || !Validator.isMobile(mobile)) {
+    if (!Validator.isEmail(email) || !Validator.isIndianMobile(mobile)) {
       return res.status(400).json({
         status: false,
         responseCode: 400,
