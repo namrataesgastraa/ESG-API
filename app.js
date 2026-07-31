@@ -7,6 +7,7 @@ const app = express();
 
 const allowedOrigins = [
   "https://esgastraa.com",
+  "https://www.esgastraa.com",
   "https://oneconnectx.com",
   "http://localhost:5000",
   "http://localhost:3000",
